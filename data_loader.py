@@ -8,16 +8,28 @@ import matplotlib.pyplot as plt
 import torchvision.utils as vutils
 
 class CycleGAN_Dataset(Dataset):
-    def __init__(self, root_path, transform=None):
+    def __init__(self, root_path, phase='train', transform=None):
         self.transform = transform
-        self.dir_A = os.path.join(root_path, 'trainA')
-        self.dir_B = os.path.join(root_path, 'trainB')
+        self.phase = phase
+        
+        if self.phase == 'train':
+            self.dir_A = os.path.join(root_path, 'trainA')
+            self.dir_B = os.path.join(root_path, 'trainB')
+        elif self.phase == 'test':
+            self.dir_A = os.path.join(root_path, 'testA')
+            self.dir_B = os.path.join(root_path, 'testB')
+        
         self.A_paths = sorted(os.listdir(self.dir_A))
         self.B_paths = sorted(os.listdir(self.dir_B))
 
     def __getitem__(self, index):
         A_path = os.path.join(self.dir_A, self.A_paths[index % len(self.A_paths)])
-        B_path = os.path.join(self.dir_B, self.B_paths[random.randint(0, len(self.B_paths) - 1)])
+        
+        if self.phase == 'train':
+            B_path = os.path.join(self.dir_B, self.B_paths[random.randint(0, len(self.B_paths) - 1)])
+        elif self.phase == 'test':
+            B_path = os.path.join(self.dir_B, self.B_paths[index % len(self.B_paths)])
+        
         A_img = Image.open(A_path).convert('RGB')
         B_img = Image.open(B_path).convert('RGB')
 
@@ -26,11 +38,14 @@ class CycleGAN_Dataset(Dataset):
             B_img = self.transform(B_img)
 
         return {'A': A_img, 'B': B_img}
-
+    
     def __len__(self):
-        return max(len(self.A_paths), len(self.B_paths))
+        if self.phase == 'train':
+            return len(self.A_paths)
+        elif self.phase == 'test':
+            return len(self.B_paths)
 
-def get_loader(root_path, image_size, batch_size, num_workers):
+def get_loader(root_path, phase, image_size, batch_size, num_workers):
     transform = transforms.Compose([
         transforms.Resize(int(image_size*1.12), Image.BICUBIC),
         transforms.RandomCrop(image_size),
@@ -39,7 +54,7 @@ def get_loader(root_path, image_size, batch_size, num_workers):
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
 
-    dataset = CycleGAN_Dataset(root_path, transform)
+    dataset = CycleGAN_Dataset(root_path, phase, transform)
     data_loader = DataLoader(dataset=dataset,
                              batch_size=batch_size,
                              shuffle=True,

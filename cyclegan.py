@@ -13,6 +13,25 @@ from generator import Generator
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def plot_loss_graph(loss_GAN_BA, loss_GAN_AB, loss_cycle, loss_G, epoch):
+    epochs = range(1, epoch+2)
+    
+    plt.plot(epochs, loss_GAN_BA, label='GAN Loss BA')
+    plt.plot(epochs, loss_GAN_AB, label='GAN Loss AB')
+    plt.plot(epochs, loss_cycle, label='Cycle Loss')
+    plt.plot(epochs, loss_G, label='Total Generator Loss')
+    
+    plt.title('Generator and Discriminator Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    
+    # 그래프 저장
+    save_dir = "loss_graphs"
+    os.makedirs(save_dir, exist_ok=True)
+    plt.savefig(os.path.join(save_dir, f"loss_graph_epoch_{epoch}.png"))
+    plt.close()
+
 # 생성된 image plot
 def plot_generated_images(fake_A, fake_B, real_A, real_B, epoch, batch_idx):
     fig, axes = plt.subplots(2, 2, figsize=(10, 10))
@@ -34,25 +53,39 @@ def plot_generated_images(fake_A, fake_B, real_A, real_B, epoch, batch_idx):
 
 
 def train(num_epochs, dataloader, G_AB, G_BA, D_A, D_B, criterion_GAN, criterion_cycle, optimizer_G, optimizer_D):
+    # 반복문 내에서 loss 값을 저장하는 리스트들
+    loss_GAN_BA_list = []
+    loss_GAN_AB_list = []
+    loss_cycle_list = []
+    loss_G_list = []
+    
     for epoch in range(num_epochs):
         for i, batch in enumerate(dataloader):
             # 실제 이미지 데이터 가져오기
             real_A = batch['A'].to(device)
             real_B = batch['B'].to(device)
+            #print("real_A: ", real_A)
+            #print("real_B: ", real_B)
 
             # 가짜 이미지 생성
             fake_B = G_AB(real_A)
             fake_A = G_BA(real_B)
+            #print("fake_A: ", fake_A)
+            #print("fake_B: ", fake_B)
 
             # Train Discriminator A
             optimizer_D.zero_grad()
             
             # Real images
             pred_real = D_A(real_A)
+            print("pred_real: ", pred_real)
             loss_D_real = criterion_GAN(pred_real, torch.ones_like(pred_real))
+            print("loss_D_real: ", loss_D_real)
             # Fake images
             pred_fake = D_A(fake_A.detach())
+            print("pred_fake: ", pred_fake)
             loss_D_fake = criterion_GAN(pred_fake, torch.zeros_like(pred_fake))
+            print("loss_D_fake: ", loss_D_fake)
             # Total loss
             loss_D_A = (loss_D_real + loss_D_fake) / 2
             loss_D_A.backward()
@@ -75,18 +108,25 @@ def train(num_epochs, dataloader, G_AB, G_BA, D_A, D_B, criterion_GAN, criterion
             optimizer_G.zero_grad()
             # Adversarial loss
             pred_fake_A = D_A(fake_A)
+            print("pred_fake_A: ", pred_fake_A)
             loss_GAN_BA = criterion_GAN(pred_fake_A, torch.ones_like(pred_fake_A))
+            print("loss_GAN_BA: ", loss_GAN_BA)
             pred_fake_B = D_B(fake_B)
+            print("pred_fake_B: ", pred_fake_B)
             loss_GAN_AB = criterion_GAN(pred_fake_B, torch.ones_like(pred_fake_B))
+            print("loss_GAN_AB: ", loss_GAN_AB)
             loss_GAN = (loss_GAN_BA + loss_GAN_AB) / 2
+            print("loss_GAN: ", loss_GAN)
             # Cycle consistency loss
             reconstructed_A = G_BA(fake_B)
             loss_cycle_A = criterion_cycle(reconstructed_A, real_A)
             reconstructed_B = G_AB(fake_A)
             loss_cycle_B = criterion_cycle(reconstructed_B, real_B)
             loss_cycle = (loss_cycle_A + loss_cycle_B) / 2
+            print("loss_cycle: ", loss_cycle)
             # Total loss
-            loss_G = loss_GAN + (lambda_cycle * loss_cycle)
+            loss_G = loss_GAN + (10 * loss_cycle)
+            print("loss_G: ", loss_G)
             loss_G.backward()
             optimizer_G.step()
 
@@ -99,15 +139,15 @@ def train(num_epochs, dataloader, G_AB, G_BA, D_A, D_B, criterion_GAN, criterion
                 save_image(fake_B, os.path.join(save_dir, f"fake_B_{epoch+1}_{i+1}.png"), normalize=True)
                 
                 # Plot generated images at regular intervals
-                plot_generated_images(fake_A, fake_B, real_A, real_B, epoch, i)
-    
+                # plot_generated_images(fake_A, fake_B, real_A, real_B, epoch, i)
+                
                 # 진행 상황 출력
                 print(f"[Epoch {epoch+1}/{num_epochs}], "
                       f"Batch {i+1}/{len(data_loader)}, "
                       f"Discriminator A Loss: {loss_D_A.item():.4f}, "
                       f"Discriminator B Loss: {loss_D_B.item():.4f}, "
                       f"Generator Loss: {loss_G.item():.4f}")
-    
+
         # 일정 주기로 모델 저장
         if (epoch + 1) % 10 == 0:
             save_dir = "saved_models"
@@ -116,10 +156,26 @@ def train(num_epochs, dataloader, G_AB, G_BA, D_A, D_B, criterion_GAN, criterion
             torch.save(G_BA.state_dict(), os.path.join("saved_models", f"generator_G_BA_{epoch+1}.pth"))
             torch.save(D_A.state_dict(), os.path.join("saved_models", f"discriminator_D_A_{epoch+1}.pth"))
             torch.save(D_B.state_dict(), os.path.join("saved_models", f"discriminator_D_B_{epoch+1}.pth"))
-        
+
+        loss_GAN_BA_list.append(loss_GAN_BA.item())
+        loss_GAN_AB_list.append(loss_GAN_AB.item())
+        loss_cycle_list.append(loss_cycle.item())
+        loss_G_list.append(loss_G.item())
+
+        # Plot loss graph
+        print("loss_GAN_BA_list: ", loss_GAN_BA_list)
+        print("loss_GAN_AB_list: ", loss_GAN_AB_list)
+        print("loss_cycle_list: ", loss_cycle_list)
+        print("loss_G_list: ", loss_G_list)
+        print("epoch: ", epoch)
+        plot_loss_graph(loss_GAN_BA_list, loss_GAN_AB_list, loss_cycle_list, loss_G_list, epoch)
+
         # GPU 메모리 비우기
         torch.cuda.empty_cache()
-            
+
+    # plot loss graph
+    #plot_loss_graph(loss_GAN_BA_list, loss_GAN_AB_list, loss_cycle_list, loss_G_list, range(num_epochs))
+        
 def test(G_AB, G_BA, D_A, D_B, test_dataloader, device):
     # 모델을 device에 할당
     G_AB.to(device)
@@ -149,7 +205,7 @@ def test(G_AB, G_BA, D_A, D_B, test_dataloader, device):
     print("Test complete.")
     
 if __name__ == "__main__":
-    data_loader = get_loader(root_path="D:\CAU\eclass\컴퓨터비전\\archive (2)",
+    data_loader = get_loader(root_path="/home/hmkwon/gitrepo/archive (4)",
                          image_size=256,
                          batch_size=8,
                          num_workers=4)
